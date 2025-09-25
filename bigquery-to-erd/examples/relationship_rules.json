@@ -1,0 +1,40 @@
+{
+  "relationships": [
+    {
+      "source_table": "orders",
+      "source_column": "customer_id",
+      "target_table": "customers",
+      "target_column": "id",
+      "relationship_type": "many_to_one",
+      "confidence": 0.9
+    },
+    {
+      "source_table": "order_items",
+      "source_column": "order_id",
+      "target_table": "orders",
+      "target_column": "id",
+      "relationship_type": "many_to_one",
+      "confidence": 0.9
+    },
+    {
+      "source_table": "order_items",
+      "source_column": "product_id",
+      "target_table": "products",
+      "target_column": "id",
+      "relationship_type": "many_to_one",
+      "confidence": 0.9
+    }
+  ],
+  "naming_patterns": [
+    {
+      "pattern": ".*_id$",
+      "target_suffix": "s",
+      "confidence": 0.8
+    },
+    {
+      "pattern": ".*_key$",
+      "target_suffix": "",
+      "confidence": 0.7
+    }
+  ]
+}

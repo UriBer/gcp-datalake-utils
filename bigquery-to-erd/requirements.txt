@@ -1,0 +1,19 @@
+# Core dependencies
+google-cloud-bigquery>=3.0.0
+python-dotenv>=0.19.0
+click>=8.0.0
+pydantic>=1.8.0
+lxml>=4.6.0
+
+# Development dependencies
+pytest>=7.0.0
+pytest-mock>=3.10.0
+pytest-cov>=4.0.0
+black>=22.0.0
+flake8>=5.0.0
+mypy>=1.0.0
+
+# Optional dependencies for advanced features
+networkx>=2.8.0  # For graph layout algorithms
+matplotlib>=3.5.0  # For visualization (optional)
+jinja2>=3.1.0  # For template rendering
