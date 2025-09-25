@@ -2,6 +2,7 @@
 
 import logging
 from typing import List, Optional, Dict, Any, Iterator
+from pathlib import Path
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound, GoogleCloudError
 from google.oauth2 import service_account
@@ -33,7 +34,8 @@ class BigQueryConnector:
             GoogleCloudError: If connection fails
         """
         try:
-            if self.credentials_path:
+            if self.credentials_path and Path(self.credentials_path).exists():
+                logger.info(f"Using service account credentials: {self.credentials_path}")
                 credentials = service_account.Credentials.from_service_account_file(
                     self.credentials_path
                 )
@@ -43,7 +45,8 @@ class BigQueryConnector:
                     location=self.config.location
                 )
             else:
-                # Use default credentials (ADC, environment, etc.)
+                # Use default credentials (ADC, gcloud CLI, environment, etc.)
+                logger.info("Using Application Default Credentials (gcloud CLI or environment)")
                 self.client = bigquery.Client(
                     project=self.config.project_id,
                     location=self.config.location
@@ -53,6 +56,8 @@ class BigQueryConnector:
             
         except Exception as e:
             logger.error(f"Failed to connect to BigQuery: {e}")
+            if "credentials" in str(e).lower():
+                logger.error("Authentication failed. Try running: gcloud auth application-default login")
             raise GoogleCloudError(f"Connection failed: {e}")
     
     def list_tables(self, dataset_id: Optional[str] = None) -> List[str]:
