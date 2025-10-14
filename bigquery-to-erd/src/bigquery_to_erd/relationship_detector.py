@@ -265,17 +265,25 @@ class RelationshipDetector:
             Target table or None
         """
         # Remove common suffixes
-        base_name = re.sub(r'_(id|key|fk|pk)$', '', column_name, flags=re.IGNORECASE)
+        base_name = re.sub(r'_(id|key|fk|pk|hk|hash_key)$', '', column_name, flags=re.IGNORECASE)
         
         # Try exact match
         if base_name in table_map:
             return table_map[base_name]
         
-        # Try with common prefixes
-        for prefix in ['dim_', 'fact_', 'tbl_', 'table_']:
+        # Try with data vault prefixes
+        for prefix in ['h_', 'dim_', 'l_', 'ref_', 'fact_', 'tbl_', 'table_']:
             prefixed_name = f"{prefix}{base_name}"
             if prefixed_name in table_map:
                 return table_map[prefixed_name]
+        
+        # Try data vault specific patterns
+        if column_name.endswith('_hk') or column_name.endswith('_hash_key'):
+            # This is likely a hub reference
+            hub_name = re.sub(r'_(hk|hash_key)$', '', column_name, flags=re.IGNORECASE)
+            hub_table = f"h_{hub_name}"
+            if hub_table in table_map:
+                return table_map[hub_table]
         
         return None
     
@@ -290,7 +298,7 @@ class RelationshipDetector:
             Target table or None
         """
         # Extract base name from column
-        base_name = re.sub(r'_(id|key|fk|pk)$', '', column_name, flags=re.IGNORECASE)
+        base_name = re.sub(r'_(id|key|fk|pk|hk|hash_key)$', '', column_name, flags=re.IGNORECASE)
         
         # Try different transformations
         candidates = [
@@ -304,11 +312,19 @@ class RelationshipDetector:
             if candidate in table_map:
                 return table_map[candidate]
             
-            # Try with prefixes
-            for prefix in ['dim_', 'fact_', 'tbl_', 'table_']:
+            # Try with data vault prefixes
+            for prefix in ['h_', 'dim_', 'l_', 'ref_', 'fact_', 'tbl_', 'table_']:
                 prefixed_candidate = f"{prefix}{candidate}"
                 if prefixed_candidate in table_map:
                     return table_map[prefixed_candidate]
+        
+        # Data vault specific pattern matching
+        if column_name.endswith('_hk') or column_name.endswith('_hash_key'):
+            # This is likely a hub reference
+            hub_name = re.sub(r'_(hk|hash_key)$', '', column_name, flags=re.IGNORECASE)
+            hub_table = f"h_{hub_name}"
+            if hub_table in table_map:
+                return table_map[hub_table]
         
         return None
     

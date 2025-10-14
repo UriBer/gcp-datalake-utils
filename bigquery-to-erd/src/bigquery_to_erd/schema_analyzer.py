@@ -138,6 +138,10 @@ class SchemaAnalyzer:
                 if self._is_foreign_key_candidate(column, table_schema):
                     return True
         
+        # Data Vault specific foreign key patterns
+        if self._is_data_vault_foreign_key(column, table_schema):
+            return True
+        
         return False
     
     def _is_primary_key_candidate(self, column: ColumnInfo, table_schema: TableSchema) -> bool:
@@ -316,27 +320,112 @@ class SchemaAnalyzer:
             True if likely a data warehouse primary key
         """
         table_name = table_schema.table_id.lower()
+        column_name = column.name.lower()
         
-        # Dimension table patterns
-        if table_name.startswith('dim_'):
+        # Data Vault Hub patterns (h_*)
+        if table_name.startswith('h_'):
+            # Hub primary keys are usually the business key
+            if column_name in ['id', 'key', 'business_key', 'bk']:
+                return True
+            # Or the hash of the business key
+            if column_name in ['hash_key', 'hk', 'hub_key']:
+                return True
+            # Or the original business key name
+            if not column_name.endswith('_id') and not column_name.endswith('_key'):
+                return True
+        
+        # Data Vault Dimension patterns (dim_*)
+        elif table_name.startswith('dim_'):
             # Look for surrogate keys
-            if column.name.lower() in ['id', 'key', 'sk', 'surrogate_key']:
+            if column_name in ['id', 'key', 'sk', 'surrogate_key', 'dim_key', 'dk']:
                 return True
-            
             # Look for business keys
-            if column.name.lower().endswith('_id') and not column.name.lower().endswith('_fk'):
+            if column_name.endswith('_id') and not column_name.endswith('_fk'):
+                return True
+            # Look for hash keys
+            if column_name in ['hash_key', 'hk', 'dim_hash_key']:
                 return True
         
-        # Fact table patterns
+        # Data Vault Link patterns (l_*)
+        elif table_name.startswith('l_'):
+            # Link primary keys are usually composite
+            if column_name in ['id', 'key', 'link_key', 'lk']:
+                return True
+            # Or hash of the combination
+            if column_name in ['hash_key', 'hk', 'link_hash_key']:
+                return True
+            # Or individual hub references
+            if column_name.endswith('_hk') or column_name.endswith('_hash_key'):
+                return True
+        
+        # Data Vault Reference patterns (ref_*)
+        elif table_name.startswith('ref_'):
+            # Reference primary keys
+            if column_name in ['id', 'key', 'ref_key', 'rk']:
+                return True
+            if column_name.endswith('_code') or column_name.endswith('_id'):
+                return True
+        
+        # Traditional data warehouse patterns
         elif table_name.startswith('fact_'):
             # Look for dimension foreign keys that could be part of composite PK
-            if column.name.lower().endswith('_id') and not column.name.lower().endswith('_fk'):
+            if column_name.endswith('_id') and not column_name.endswith('_fk'):
                 return True
         
         # Bridge table patterns
-        elif table_name.startswith('bridge_') or table_name.startswith('l_'):
+        elif table_name.startswith('bridge_'):
             # Look for relationship keys
-            if column.name.lower() in ['id', 'key', 'relationship_id']:
+            if column_name in ['id', 'key', 'relationship_id']:
+                return True
+        
+        return False
+    
+    def _is_data_vault_foreign_key(self, column: ColumnInfo, table_schema: TableSchema) -> bool:
+        """Check if column is a data vault foreign key.
+        
+        Args:
+            column: Column to check
+            table_schema: Parent table schema
+            
+        Returns:
+            True if likely a data vault foreign key
+        """
+        table_name = table_schema.table_id.lower()
+        column_name = column.name.lower()
+        
+        # Data Vault Link patterns (l_*)
+        if table_name.startswith('l_'):
+            # Link tables contain references to hubs
+            if column_name.endswith('_hk') or column_name.endswith('_hash_key'):
+                return True
+            # Or direct hub references
+            if column_name in ['hub_key', 'hk']:
+                return True
+        
+        # Data Vault Dimension patterns (dim_*)
+        elif table_name.startswith('dim_'):
+            # Dimensions may reference hubs
+            if column_name.endswith('_hk') or column_name.endswith('_hash_key'):
+                return True
+            # Or business keys that reference other entities
+            if column_name.endswith('_id') and not column_name.endswith('_fk'):
+                return True
+        
+        # Data Vault Hub patterns (h_*)
+        elif table_name.startswith('h_'):
+            # Hubs typically don't have foreign keys, but may have business keys
+            if column_name.endswith('_id') and not column_name.endswith('_fk'):
+                return True
+        
+        # Data Vault Reference patterns (ref_*)
+        elif table_name.startswith('ref_'):
+            # References typically don't have foreign keys
+            return False
+        
+        # Traditional fact tables
+        elif table_name.startswith('fact_'):
+            # Fact tables have foreign keys to dimensions
+            if column_name.endswith('_id') and not column_name.endswith('_fk'):
                 return True
         
         return False
