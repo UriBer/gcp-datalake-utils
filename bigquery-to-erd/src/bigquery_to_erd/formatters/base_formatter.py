@@ -64,7 +64,7 @@ class BaseFormatter(ABC):
     
     def get_table_position(self, table: TableSchema, index: int, 
                           total_tables: int) -> Dict[str, float]:
-        """Get position for table in layout.
+        """Get position for table in improved layout.
         
         Args:
             table: Table schema
@@ -74,14 +74,36 @@ class BaseFormatter(ABC):
         Returns:
             Dictionary with x, y coordinates
         """
-        # Simple grid layout
-        cols = int(total_tables ** 0.5) + 1
-        row = index // cols
+        # Improved grid layout with better spacing
+        if total_tables <= 4:
+            cols = total_tables
+        elif total_tables <= 9:
+            cols = 3
+        else:
+            cols = 4
+        
+        rows = (total_tables + cols - 1) // cols
+        
         col = index % cols
+        row = index // cols
+        
+        # Increased spacing for better readability
+        spacing_x = 400
+        spacing_y = 300
+        
+        # Center the layout
+        total_width = (cols - 1) * spacing_x + 250
+        total_height = (rows - 1) * spacing_y + 200
+        
+        start_x = max(50, (1200 - total_width) // 2)
+        start_y = max(50, (800 - total_height) // 2)
+        
+        x = start_x + col * spacing_x
+        y = start_y + row * spacing_y
         
         return {
-            "x": col * 300,
-            "y": row * 200
+            "x": x,
+            "y": y
         }
     
     def format_column_info(self, column) -> str:

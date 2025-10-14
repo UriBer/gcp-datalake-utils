@@ -76,8 +76,11 @@ class RelationshipDetector:
         # Remove duplicates and resolve conflicts
         unique_relationships = self._resolve_relationship_conflicts(all_relationships)
         
-        logger.info(f"Detected {len(unique_relationships)} unique relationships")
-        return unique_relationships
+        # Filter relationships to reduce clutter
+        filtered_relationships = self._filter_relationships(unique_relationships)
+        
+        logger.info(f"Detected {len(unique_relationships)} unique relationships, filtered to {len(filtered_relationships)} meaningful relationships")
+        return filtered_relationships
     
     def _detect_foreign_keys(self, tables: List[TableSchema], 
                            table_map: Dict[str, TableSchema]) -> List[Relationship]:
@@ -737,6 +740,70 @@ class RelationshipDetector:
                         relationship_map[key] = rel
         
         return list(relationship_map.values())
+    
+    def _filter_relationships(self, relationships: List[Relationship]) -> List[Relationship]:
+        """Filter relationships to reduce clutter and show only meaningful connections.
+        
+        Args:
+            relationships: List of all detected relationships
+            
+        Returns:
+            Filtered list of meaningful relationships
+        """
+        if not relationships:
+            return relationships
+        
+        # Group relationships by source table
+        table_relationships = {}
+        for rel in relationships:
+            if rel.source_table not in table_relationships:
+                table_relationships[rel.source_table] = []
+            table_relationships[rel.source_table].append(rel)
+        
+        filtered = []
+        
+        for source_table, rels in table_relationships.items():
+            # Sort by confidence (highest first)
+            rels.sort(key=lambda x: x.confidence, reverse=True)
+            
+            # Keep only the top relationships per source table
+            # Limit to 3-5 relationships per table to reduce clutter
+            max_rels_per_table = min(5, len(rels))
+            
+            # Prefer relationships with higher confidence and better naming patterns
+            meaningful_rels = []
+            for rel in rels[:max_rels_per_table]:
+                # Skip very low confidence relationships
+                if rel.confidence < 0.3:
+                    continue
+                
+                # Prefer relationships that follow naming conventions
+                if (rel.detection_method in ["enhanced_pk_fk", "foreign_key"] or
+                    rel.confidence >= 0.7):
+                    meaningful_rels.append(rel)
+            
+            # If we don't have enough high-confidence relationships, 
+            # include some medium-confidence ones
+            if len(meaningful_rels) < 3:
+                for rel in rels:
+                    if rel not in meaningful_rels and rel.confidence >= 0.5:
+                        meaningful_rels.append(rel)
+                        if len(meaningful_rels) >= 3:
+                            break
+            
+            filtered.extend(meaningful_rels)
+        
+        # Remove duplicate relationships (same source->target pair)
+        seen_pairs = set()
+        final_filtered = []
+        for rel in filtered:
+            pair = (rel.source_table, rel.target_table)
+            if pair not in seen_pairs:
+                seen_pairs.add(pair)
+                final_filtered.append(rel)
+        
+        logger.debug(f"Filtered {len(relationships)} relationships down to {len(final_filtered)} meaningful relationships")
+        return final_filtered
 
 
 class RelationshipValidator:

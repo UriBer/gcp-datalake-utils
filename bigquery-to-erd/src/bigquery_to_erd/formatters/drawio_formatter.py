@@ -166,7 +166,7 @@ class DrawIOFormatter(BaseFormatter):
         return edge_cell
     
     def _format_table_value(self, table: TableSchema) -> str:
-        """Format table value for Draw.io.
+        """Format table value for Draw.io with improved readability.
         
         Args:
             table: Table schema
@@ -176,13 +176,21 @@ class DrawIOFormatter(BaseFormatter):
         """
         lines = [f"<b>{table.table_id}</b>"]
         
-        for column in table.columns:
+        # Limit number of columns shown to reduce clutter
+        max_columns = 8
+        columns_to_show = table.columns[:max_columns]
+        
+        for column in columns_to_show:
             column_info = self.format_column_info(column)
             if column.is_primary_key:
                 column_info = f"<b>{column_info}</b>"
-            if column.is_foreign_key:
+            elif column.is_foreign_key:
                 column_info = f"<i>{column_info}</i>"
             lines.append(column_info)
+        
+        # Show ellipsis if there are more columns
+        if len(table.columns) > max_columns:
+            lines.append(f"... and {len(table.columns) - max_columns} more")
         
         return "<br/>".join(lines)
     
@@ -204,7 +212,7 @@ class DrawIOFormatter(BaseFormatter):
         return base_style
     
     def _get_edge_style(self, relationship: Relationship) -> str:
-        """Get edge style for relationship.
+        """Get edge style for relationship with reduced clutter.
         
         Args:
             relationship: Relationship object
@@ -212,9 +220,9 @@ class DrawIOFormatter(BaseFormatter):
         Returns:
             Style string
         """
-        base_style = "endArrow=classic;html=1;rounded=0;"
+        base_style = "endArrow=classic;html=1;rounded=1;"
         
-        # Add relationship type styling
+        # Simplified relationship type styling
         if relationship.relationship_type.value == "one_to_one":
             base_style += "startArrow=classic;"
         elif relationship.relationship_type.value == "one_to_many":
@@ -224,13 +232,16 @@ class DrawIOFormatter(BaseFormatter):
         elif relationship.relationship_type.value == "many_to_many":
             base_style += "startArrow=classic;"
         
-        # Add confidence-based styling
-        if relationship.confidence < 0.5:
-            base_style += "strokeColor=#ff9999;strokeWidth=2;"
-        elif relationship.confidence < 0.8:
-            base_style += "strokeColor=#ffcc99;strokeWidth=2;"
+        # Simplified confidence-based styling
+        if relationship.confidence >= 0.8:
+            base_style += "strokeColor=#4CAF50;strokeWidth=2;"
+        elif relationship.confidence >= 0.6:
+            base_style += "strokeColor=#2196F3;strokeWidth=1.5;"
         else:
-            base_style += "strokeColor=#99cc99;strokeWidth=2;"
+            base_style += "strokeColor=#9E9E9E;strokeWidth=1;"
+        
+        # Add transparency for less visual clutter
+        base_style += "opacity=70;"
         
         return base_style
     
