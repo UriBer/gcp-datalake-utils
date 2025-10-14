@@ -3,9 +3,12 @@
 import xml.etree.ElementTree as ET
 from typing import List, Dict, Any
 from xml.dom import minidom
+import logging
 
 from .base_formatter import BaseFormatter
 from ..models import TableSchema, Relationship
+
+logger = logging.getLogger(__name__)
 
 
 class DrawIOFormatter(BaseFormatter):
@@ -85,6 +88,8 @@ class DrawIOFormatter(BaseFormatter):
             root_cell.append(table_cell)
         
         # Create relationship cells
+        logger.debug(f"Creating relationship cells for {len(relationships)} relationships")
+        relationship_count = 0
         for relationship in relationships:
             if (relationship.source_table in table_cells and 
                 relationship.target_table in table_cells):
@@ -93,6 +98,11 @@ class DrawIOFormatter(BaseFormatter):
                     table_cells[relationship.target_table]
                 )
                 root_cell.append(edge_cell)
+                relationship_count += 1
+            else:
+                logger.debug(f"Skipping relationship {relationship.source_table} -> {relationship.target_table}: source_in_cells={relationship.source_table in table_cells}, target_in_cells={relationship.target_table in table_cells}")
+        
+        logger.debug(f"Created {relationship_count} relationship cells")
         
         # Convert to string
         rough_string = ET.tostring(root, 'utf-8')
@@ -114,9 +124,9 @@ class DrawIOFormatter(BaseFormatter):
         position = self.get_table_position(table, index, total_tables)
         
         # Calculate table dimensions
-        num_columns = len(table.columns)
-        table_width = 200
-        table_height = 50 + (num_columns * 25)
+        num_columns = min(6, len(table.columns))  # Limit to 6 columns for display
+        table_width = 250  # Increased width for better readability
+        table_height = 60 + (num_columns * 30)  # Increased height and spacing
         
         # Create table cell
         table_cell = ET.Element("mxCell")
@@ -177,20 +187,27 @@ class DrawIOFormatter(BaseFormatter):
         lines = [f"<b>{table.table_id}</b>"]
         
         # Limit number of columns shown to reduce clutter
-        max_columns = 8
+        max_columns = 6  # Reduced for better readability
         columns_to_show = table.columns[:max_columns]
         
         for column in columns_to_show:
-            column_info = self.format_column_info(column)
+            # Simplified column formatting
+            column_name = column.name
+            data_type = column.data_type
+            
+            # Add indicators for special columns
             if column.is_primary_key:
-                column_info = f"<b>{column_info}</b>"
+                column_name = f"🔑 {column_name}"
             elif column.is_foreign_key:
-                column_info = f"<i>{column_info}</i>"
+                column_name = f"🔗 {column_name}"
+            
+            # Simple format: name (type)
+            column_info = f"{column_name} ({data_type})"
             lines.append(column_info)
         
         # Show ellipsis if there are more columns
         if len(table.columns) > max_columns:
-            lines.append(f"... and {len(table.columns) - max_columns} more")
+            lines.append(f"... +{len(table.columns) - max_columns} more")
         
         return "<br/>".join(lines)
     

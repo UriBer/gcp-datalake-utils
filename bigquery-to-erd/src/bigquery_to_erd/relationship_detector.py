@@ -774,21 +774,21 @@ class RelationshipDetector:
             meaningful_rels = []
             for rel in rels[:max_rels_per_table]:
                 # Skip very low confidence relationships
-                if rel.confidence < 0.3:
+                if rel.confidence < 0.2:  # Lowered threshold
                     continue
                 
                 # Prefer relationships that follow naming conventions
                 if (rel.detection_method in ["enhanced_pk_fk", "foreign_key"] or
-                    rel.confidence >= 0.7):
+                    rel.confidence >= 0.5):  # Lowered threshold
                     meaningful_rels.append(rel)
             
             # If we don't have enough high-confidence relationships, 
             # include some medium-confidence ones
-            if len(meaningful_rels) < 3:
+            if len(meaningful_rels) < 2:  # Lowered minimum
                 for rel in rels:
-                    if rel not in meaningful_rels and rel.confidence >= 0.5:
+                    if rel not in meaningful_rels and rel.confidence >= 0.3:  # Lowered threshold
                         meaningful_rels.append(rel)
-                        if len(meaningful_rels) >= 3:
+                        if len(meaningful_rels) >= 2:  # Lowered minimum
                             break
             
             filtered.extend(meaningful_rels)
