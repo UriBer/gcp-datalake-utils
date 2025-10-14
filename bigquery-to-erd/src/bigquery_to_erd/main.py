@@ -11,6 +11,7 @@ from google.cloud.exceptions import GoogleCloudError
 from .config import Config
 from .models import ERDConfig, OutputFormat, TableLayout
 from .bigquery_connector import BigQueryConnector
+from .bq_cli_connector import BQCLIConnector
 from .schema_analyzer import SchemaAnalyzer
 from .relationship_detector import RelationshipDetector, RelationshipValidator
 from .erd_generator import ERDGenerator
@@ -158,22 +159,38 @@ def main(dataset_id: Optional[str],
         
         # Initialize components
         credentials_path = config_manager.get_google_credentials_path()
-        connector = BigQueryConnector(config, credentials_path)
         analyzer = SchemaAnalyzer()
         detector = RelationshipDetector(custom_rules_config)
         validator = RelationshipValidator()
         generator = ERDGenerator(config)
         
-        # Connect to BigQuery
-        click.echo("Connecting to BigQuery...")
-        connector.connect()
+        # Try Python client first, fallback to BQ CLI
+        connector = None
+        tables = []
         
-        if not connector.test_connection():
-            raise RuntimeError("Failed to establish BigQuery connection")
-        
-        # Extract table schemas
-        click.echo(f"Extracting schemas from dataset: {config.dataset_id}")
-        tables = connector.get_all_table_schemas()
+        try:
+            # Try Python BigQuery client first
+            click.echo("Connecting to BigQuery using Python client...")
+            connector = BigQueryConnector(config, credentials_path)
+            connector.connect()
+            
+            if connector.test_connection():
+                click.echo(f"Extracting schemas from dataset: {config.dataset_id}")
+                tables = connector.get_all_table_schemas()
+            else:
+                raise RuntimeError("Python client connection test failed")
+                
+        except Exception as e:
+            logger.warning(f"Python client failed: {e}")
+            click.echo("Python client failed, trying BQ CLI...")
+            
+            # Fallback to BQ CLI
+            bq_connector = BQCLIConnector(config)
+            if not bq_connector.test_connection():
+                raise RuntimeError("Neither Python client nor BQ CLI is available")
+            
+            click.echo(f"Extracting schemas from dataset: {config.dataset_id} using BQ CLI")
+            tables = bq_connector.get_all_table_schemas()
         
         if not tables:
             click.echo("No tables found in dataset")
@@ -217,8 +234,9 @@ def main(dataset_id: Optional[str],
         click.echo(f"  Relationships: {len(valid_relationships)}")
         click.echo(f"  Format: {config.output_format}")
         
-        # Close connection
-        connector.close()
+        # Close connection if using Python client
+        if connector:
+            connector.close()
         
     except KeyboardInterrupt:
         click.echo("\nOperation cancelled by user")

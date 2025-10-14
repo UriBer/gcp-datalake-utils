@@ -53,8 +53,9 @@ class BaseFormatter(ABC):
         if not tables:
             raise ValueError("No tables provided")
         
-        if not relationships:
-            raise ValueError("No relationships provided")
+        # Relationships are optional - we can generate ERD with tables only
+        # if not relationships:
+        #     raise ValueError("No relationships provided")
         
         # Check for duplicate table IDs
         table_ids = [table.table_id for table in tables]
