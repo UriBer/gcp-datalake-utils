@@ -6,6 +6,8 @@ import json
 import tempfile
 from typing import List, Optional, Dict, Any
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
 
 from .models import TableSchema, ColumnInfo, ERDConfig
 
@@ -99,7 +101,7 @@ class BQCLIConnector:
                 f'{self.project_id}:{self.dataset_id}.{table_id}'
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
             
             if result.returncode != 0:
                 raise RuntimeError(f"bq show failed for {table_id}: {result.stderr}")
@@ -145,59 +147,115 @@ class BQCLIConnector:
             raise RuntimeError(f"bq show command failed for {table_id}: {e}")
     
     def get_all_table_schemas(self) -> List[TableSchema]:
-        """Get schemas for all tables in the dataset.
+        """Get schemas for all tables in the dataset using parallel processing.
         
         Returns:
             List of TableSchema objects
         """
         table_ids = self.list_tables()
+        logger.info(f"Found {len(table_ids)} tables, extracting schemas in parallel...")
         
-        schemas = []
+        # Get table types in one batch call
+        table_types = self._get_table_types_batch(table_ids)
+        
+        # Filter tables based on type
+        tables_to_process = []
         for table_id in table_ids:
-            try:
-                # Check if we should include this table type
-                table_ref = f'{self.project_id}:{self.dataset_id}.{table_id}'
-                
-                # Get table type using bq ls
-                cmd = ['bq', 'ls', '--format=json', f'{self.project_id}:{self.dataset_id}']
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    tables_data = json.loads(result.stdout)
-                    table_info = next(
-                        (t for t in tables_data if t['tableReference']['tableId'] == table_id), 
-                        None
-                    )
-                    
-                    if table_info:
-                        table_type = table_info.get('type', 'TABLE')
-                        
-                        should_include = True
-                        if table_type == "VIEW" and not self.config.include_views:
-                            should_include = False
-                        elif table_type == "EXTERNAL" and not self.config.include_external_tables:
-                            should_include = False
-                        
-                        if should_include:
-                            schema = self.get_table_schema(table_id)
-                            schemas.append(schema)
-                        else:
-                            logger.debug(f"Skipping {table_type} table: {table_id}")
-                    else:
-                        # If we can't determine type, include it
-                        schema = self.get_table_schema(table_id)
+            table_type = table_types.get(table_id, 'TABLE')
+            
+            should_include = True
+            if table_type == "VIEW" and not self.config.include_views:
+                should_include = False
+            elif table_type == "EXTERNAL" and not self.config.include_external_tables:
+                should_include = False
+            
+            if should_include:
+                tables_to_process.append(table_id)
+            else:
+                logger.debug(f"Skipping {table_type} table: {table_id}")
+        
+        logger.info(f"Processing {len(tables_to_process)} tables (filtered from {len(table_ids)})")
+        
+        # Process tables in parallel
+        schemas = []
+        max_workers = min(8, len(tables_to_process))  # Limit to 8 workers to avoid overwhelming BigQuery
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_table = {
+                executor.submit(self._get_table_schema_safe, table_id): table_id 
+                for table_id in tables_to_process
+            }
+            
+            # Collect results as they complete
+            completed = 0
+            start_time = time.time()
+            for future in as_completed(future_to_table):
+                table_id = future_to_table[future]
+                try:
+                    schema = future.result(timeout=30)  # 30 second timeout per table
+                    if schema:
                         schemas.append(schema)
-                else:
-                    # If we can't check type, include it
-                    schema = self.get_table_schema(table_id)
-                    schemas.append(schema)
+                    completed += 1
                     
-            except Exception as e:
-                logger.warning(f"Failed to get schema for table {table_id}: {e}")
-                continue
+                    # Progress reporting
+                    if completed % 5 == 0 or completed == len(tables_to_process):
+                        elapsed = time.time() - start_time
+                        rate = completed / elapsed if elapsed > 0 else 0
+                        eta = (len(tables_to_process) - completed) / rate if rate > 0 else 0
+                        logger.info(f"Progress: {completed}/{len(tables_to_process)} tables "
+                                  f"({completed/len(tables_to_process)*100:.1f}%) - "
+                                  f"Rate: {rate:.1f} tables/sec - ETA: {eta:.0f}s")
+                        
+                except Exception as e:
+                    logger.warning(f"Failed to get schema for table {table_id}: {e}")
+                    completed += 1
         
         logger.info(f"Successfully extracted schemas for {len(schemas)} tables using bq CLI")
         return schemas
+    
+    def _get_table_types_batch(self, table_ids: List[str]) -> Dict[str, str]:
+        """Get table types for all tables in one batch call.
+        
+        Args:
+            table_ids: List of table IDs
+            
+        Returns:
+            Dictionary mapping table_id to table_type
+        """
+        try:
+            cmd = ['bq', 'ls', '--format=json', f'{self.project_id}:{self.dataset_id}']
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                tables_data = json.loads(result.stdout)
+                table_types = {}
+                for table_info in tables_data:
+                    table_id = table_info['tableReference']['tableId']
+                    table_type = table_info.get('type', 'TABLE')
+                    table_types[table_id] = table_type
+                return table_types
+            else:
+                logger.warning(f"Failed to get table types: {result.stderr}")
+                return {table_id: 'TABLE' for table_id in table_ids}
+        except Exception as e:
+            logger.warning(f"Error getting table types: {e}")
+            return {table_id: 'TABLE' for table_id in table_ids}
+    
+    def _get_table_schema_safe(self, table_id: str) -> Optional[TableSchema]:
+        """Safely get table schema with error handling.
+        
+        Args:
+            table_id: Table ID
+            
+        Returns:
+            TableSchema or None if failed
+        """
+        try:
+            return self.get_table_schema(table_id)
+        except Exception as e:
+            logger.debug(f"Failed to get schema for {table_id}: {e}")
+            return None
     
     def get_table_metadata(self, table_id: str) -> Dict[str, Any]:
         """Get metadata for a table.

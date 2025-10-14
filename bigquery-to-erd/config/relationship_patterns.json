@@ -252,34 +252,33 @@
     "minimum_threshold": 0.3
   },
   "filtering_rules": {
-    "max_relationships_per_table": 5,
-    "min_confidence_threshold": 0.3,
+    "max_relationships_per_table": 3,
+    "min_confidence_threshold": 0.5,
     "preferred_detection_methods": [
       "enhanced_pk_fk",
-      "foreign_key",
       "data_vault_pattern"
     ],
     "duplicate_handling": "keep_highest_confidence"
   },
   "data_testing": {
-    "enabled": true,
-    "sample_size": 1000,
-    "confidence_threshold": 0.8,
-    "max_orphan_percentage": 0.1,
+    "enabled": false,
+    "sample_size": 100,
+    "confidence_threshold": 0.7,
+    "max_orphan_percentage": 0.2,
     "type_compatibility_required": true,
-    "distribution_similarity_threshold": 0.7,
+    "distribution_similarity_threshold": 0.5,
     "adaptive_sampling": true,
-    "target_confidence_level": 0.95
+    "target_confidence_level": 0.8
   },
   "performance": {
     "cache_enabled": true,
     "cache_ttl_hours": 24,
     "parallel_processing": true,
-    "max_workers": 4,
-    "batch_size": 10,
+    "max_workers": 8,
+    "batch_size": 20,
     "incremental_processing": true,
     "state_persistence": true,
-    "timeout_seconds": 300,
+    "timeout_seconds": 120,
     "group_tables_by_type": true
   }
 }
