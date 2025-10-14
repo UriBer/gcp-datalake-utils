@@ -87,20 +87,29 @@ class DrawIOFormatter(BaseFormatter):
             table_cells[table.table_id] = table_cell
             root_cell.append(table_cell)
         
+        logger.debug(f"Table cells created: {list(table_cells.keys())}")
+        
         # Create relationship cells
         logger.debug(f"Creating relationship cells for {len(relationships)} relationships")
         relationship_count = 0
+        
+        # Create case-insensitive lookup
+        table_cells_lower = {k.lower(): v for k, v in table_cells.items()}
+        
         for relationship in relationships:
-            if (relationship.source_table in table_cells and 
-                relationship.target_table in table_cells):
+            source_key = relationship.source_table.lower()
+            target_key = relationship.target_table.lower()
+            
+            if (source_key in table_cells_lower and 
+                target_key in table_cells_lower):
                 edge_cell = self._create_relationship_cell(
-                    relationship, table_cells[relationship.source_table],
-                    table_cells[relationship.target_table]
+                    relationship, table_cells_lower[source_key],
+                    table_cells_lower[target_key]
                 )
                 root_cell.append(edge_cell)
                 relationship_count += 1
             else:
-                logger.debug(f"Skipping relationship {relationship.source_table} -> {relationship.target_table}: source_in_cells={relationship.source_table in table_cells}, target_in_cells={relationship.target_table in table_cells}")
+                logger.debug(f"Skipping relationship {relationship.source_table} -> {relationship.target_table}: source_in_cells={source_key in table_cells_lower}, target_in_cells={target_key in table_cells_lower}")
         
         logger.debug(f"Created {relationship_count} relationship cells")
         
