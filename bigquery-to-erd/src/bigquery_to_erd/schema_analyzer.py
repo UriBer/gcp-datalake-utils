@@ -115,6 +115,10 @@ class SchemaAnalyzer:
                 if self._is_primary_key_candidate(column, table_schema):
                     return True
         
+        # Enhanced PK detection for data warehouse patterns
+        if self._is_data_warehouse_primary_key(column, table_schema):
+            return True
+        
         return False
     
     def identify_foreign_key(self, column: ColumnInfo, table_schema: TableSchema) -> bool:
@@ -300,5 +304,39 @@ class SchemaAnalyzer:
             "table_size_mb": (schema.num_bytes or 0) / (1024 * 1024),
             "row_count": schema.num_rows or 0,
         }
+    
+    def _is_data_warehouse_primary_key(self, column: ColumnInfo, table_schema: TableSchema) -> bool:
+        """Check if column is a data warehouse primary key.
         
-        return metrics
+        Args:
+            column: Column to check
+            table_schema: Parent table schema
+            
+        Returns:
+            True if likely a data warehouse primary key
+        """
+        table_name = table_schema.table_id.lower()
+        
+        # Dimension table patterns
+        if table_name.startswith('dim_'):
+            # Look for surrogate keys
+            if column.name.lower() in ['id', 'key', 'sk', 'surrogate_key']:
+                return True
+            
+            # Look for business keys
+            if column.name.lower().endswith('_id') and not column.name.lower().endswith('_fk'):
+                return True
+        
+        # Fact table patterns
+        elif table_name.startswith('fact_'):
+            # Look for dimension foreign keys that could be part of composite PK
+            if column.name.lower().endswith('_id') and not column.name.lower().endswith('_fk'):
+                return True
+        
+        # Bridge table patterns
+        elif table_name.startswith('bridge_') or table_name.startswith('l_'):
+            # Look for relationship keys
+            if column.name.lower() in ['id', 'key', 'relationship_id']:
+                return True
+        
+        return False

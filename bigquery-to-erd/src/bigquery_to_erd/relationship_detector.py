@@ -60,6 +60,10 @@ class RelationshipDetector:
             naming_relationships = self._detect_naming_conventions(tables, table_map)
             all_relationships.extend(naming_relationships)
         
+        # Enhanced PK-FK detection with better patterns
+        enhanced_relationships = self._detect_enhanced_pk_fk_relationships(tables, table_map)
+        all_relationships.extend(enhanced_relationships)
+        
         # Always apply data type matching
         type_relationships = self._detect_data_type_matches(tables, table_map)
         all_relationships.extend(type_relationships)
@@ -108,6 +112,248 @@ class RelationshipDetector:
         
         logger.debug(f"Detected {len(relationships)} foreign key relationships")
         return relationships
+    
+    def _detect_enhanced_pk_fk_relationships(self, tables: List[TableSchema], 
+                                           table_map: Dict[str, TableSchema]) -> List[Relationship]:
+        """Enhanced PK-FK relationship detection with better naming patterns.
+        
+        Args:
+            tables: List of table schemas
+            table_map: Map of table_id to TableSchema
+            
+        Returns:
+            List of enhanced PK-FK relationships
+        """
+        relationships = []
+        
+        # Build a map of potential primary keys by table
+        pk_map = {}
+        for table in tables:
+            # Find primary key columns
+            primary_keys = []
+            for column in table.columns:
+                if (column.is_primary_key or 
+                    self._is_likely_primary_key(column.name, table.table_id)):
+                    primary_keys.append(column)
+            
+            # If no explicit PKs found, look for common PK patterns
+            if not primary_keys:
+                for column in table.columns:
+                    if self._is_common_primary_key(column.name):
+                        primary_keys.append(column)
+            
+            pk_map[table.table_id] = primary_keys
+        
+        # Look for foreign key patterns
+        for table in tables:
+            for column in table.columns:
+                if column.is_foreign_key:
+                    continue
+                
+                # Try to find matching primary key
+                target_info = self._find_enhanced_target(table, column, pk_map, table_map)
+                if target_info:
+                    target_table, target_column = target_info
+                    relationship = Relationship(
+                        source_table=table.table_id,
+                        source_column=column.name,
+                        target_table=target_table.table_id,
+                        target_column=target_column.name,
+                        relationship_type=RelationshipType.MANY_TO_ONE,
+                        confidence=0.9,  # High confidence for enhanced detection
+                        detection_method="enhanced_pk_fk"
+                    )
+                    relationships.append(relationship)
+        
+        logger.debug(f"Detected {len(relationships)} enhanced PK-FK relationships")
+        return relationships
+    
+    def _is_likely_primary_key(self, column_name: str, table_name: str) -> bool:
+        """Check if column is likely a primary key based on naming.
+        
+        Args:
+            column_name: Column name
+            table_name: Table name
+            
+        Returns:
+            True if likely primary key
+        """
+        # Common PK patterns
+        pk_patterns = [
+            r'^id$',
+            r'^.*_id$',
+            r'^.*_key$',
+            r'^.*_pk$',
+            r'^pk_.*$',
+            r'^.*_code$',
+            r'^.*_number$',
+        ]
+        
+        for pattern in pk_patterns:
+            if re.match(pattern, column_name, re.IGNORECASE):
+                return True
+        
+        # Check if column name matches table name pattern
+        table_base = table_name.lower().replace('dim_', '').replace('fact_', '')
+        if column_name.lower() in [f"{table_base}_id", f"{table_base}_key", "id"]:
+            return True
+        
+        return False
+    
+    def _is_common_primary_key(self, column_name: str) -> bool:
+        """Check if column is a common primary key name.
+        
+        Args:
+            column_name: Column name
+            
+        Returns:
+            True if common PK name
+        """
+        common_pk_names = ['id', 'key', 'pk', 'code', 'number', 'identifier']
+        return column_name.lower() in common_pk_names
+    
+    def _find_enhanced_target(self, source_table: TableSchema, source_column: ColumnInfo,
+                            pk_map: Dict[str, List[ColumnInfo]], 
+                            table_map: Dict[str, TableSchema]) -> Optional[Tuple[TableSchema, ColumnInfo]]:
+        """Find target table and column for enhanced PK-FK detection.
+        
+        Args:
+            source_table: Source table
+            source_column: Source column
+            pk_map: Map of table_id to primary keys
+            table_map: Map of table_id to TableSchema
+            
+        Returns:
+            Tuple of (target_table, target_column) or None
+        """
+        # Strategy 1: Direct name matching
+        target_table = self._find_target_by_direct_name(source_column.name, table_map)
+        if target_table:
+            target_column = self._find_best_primary_key(target_table, pk_map.get(target_table.table_id, []))
+            if target_column and self._are_columns_compatible(source_column, target_column):
+                return (target_table, target_column)
+        
+        # Strategy 2: Pattern-based matching
+        target_table = self._find_target_by_pattern(source_column.name, table_map)
+        if target_table:
+            target_column = self._find_best_primary_key(target_table, pk_map.get(target_table.table_id, []))
+            if target_column and self._are_columns_compatible(source_column, target_column):
+                return (target_table, target_column)
+        
+        # Strategy 3: Data type matching
+        for table_id, primary_keys in pk_map.items():
+            if table_id == source_table.table_id:
+                continue
+            
+            for pk_column in primary_keys:
+                if self._are_columns_compatible(source_column, pk_column):
+                    return (table_map[table_id], pk_column)
+        
+        return None
+    
+    def _find_target_by_direct_name(self, column_name: str, table_map: Dict[str, TableSchema]) -> Optional[TableSchema]:
+        """Find target table by direct name matching.
+        
+        Args:
+            column_name: Column name
+            table_map: Map of table_id to TableSchema
+            
+        Returns:
+            Target table or None
+        """
+        # Remove common suffixes
+        base_name = re.sub(r'_(id|key|fk|pk)$', '', column_name, flags=re.IGNORECASE)
+        
+        # Try exact match
+        if base_name in table_map:
+            return table_map[base_name]
+        
+        # Try with common prefixes
+        for prefix in ['dim_', 'fact_', 'tbl_', 'table_']:
+            prefixed_name = f"{prefix}{base_name}"
+            if prefixed_name in table_map:
+                return table_map[prefixed_name]
+        
+        return None
+    
+    def _find_target_by_pattern(self, column_name: str, table_map: Dict[str, TableSchema]) -> Optional[TableSchema]:
+        """Find target table by pattern matching.
+        
+        Args:
+            column_name: Column name
+            table_map: Map of table_id to TableSchema
+            
+        Returns:
+            Target table or None
+        """
+        # Extract base name from column
+        base_name = re.sub(r'_(id|key|fk|pk)$', '', column_name, flags=re.IGNORECASE)
+        
+        # Try different transformations
+        candidates = [
+            base_name,
+            base_name + 's',  # plural
+            base_name + 'es',  # plural with es
+            base_name.rstrip('s'),  # singular
+        ]
+        
+        for candidate in candidates:
+            if candidate in table_map:
+                return table_map[candidate]
+            
+            # Try with prefixes
+            for prefix in ['dim_', 'fact_', 'tbl_', 'table_']:
+                prefixed_candidate = f"{prefix}{candidate}"
+                if prefixed_candidate in table_map:
+                    return table_map[prefixed_candidate]
+        
+        return None
+    
+    def _find_best_primary_key(self, table: TableSchema, primary_keys: List[ColumnInfo]) -> Optional[ColumnInfo]:
+        """Find the best primary key from a list of candidates.
+        
+        Args:
+            table: Target table
+            primary_keys: List of primary key candidates
+            
+        Returns:
+            Best primary key or None
+        """
+        if not primary_keys:
+            return None
+        
+        # Prefer explicitly marked primary keys
+        explicit_pks = [pk for pk in primary_keys if pk.is_primary_key]
+        if explicit_pks:
+            return explicit_pks[0]
+        
+        # Prefer 'id' columns
+        id_columns = [pk for pk in primary_keys if pk.name.lower() == 'id']
+        if id_columns:
+            return id_columns[0]
+        
+        # Return first candidate
+        return primary_keys[0]
+    
+    def _are_columns_compatible(self, col1: ColumnInfo, col2: ColumnInfo) -> bool:
+        """Check if two columns are compatible for a relationship.
+        
+        Args:
+            col1: First column
+            col2: Second column
+            
+        Returns:
+            True if columns are compatible
+        """
+        # Must have same data type
+        if col1.data_type != col2.data_type:
+            return False
+        
+        # Both should be required or both nullable
+        if col1.mode != col2.mode and not (col1.mode == "NULLABLE" and col2.mode == "NULLABLE"):
+            return False
+        
+        return True
     
     def _detect_naming_conventions(self, tables: List[TableSchema],
                                  table_map: Dict[str, TableSchema]) -> List[Relationship]:

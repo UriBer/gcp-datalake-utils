@@ -18,7 +18,7 @@ class DrawIOFormatter(BaseFormatter):
             config: ERD configuration
         """
         super().__init__(config)
-        self.cell_id_counter = 1
+        self.cell_id_counter = 2  # Start from 2 to avoid conflicts with standard IDs (0, 1)
     
     def format_erd(self, tables: List[TableSchema], 
                    relationships: List[Relationship]) -> str:
@@ -242,6 +242,10 @@ class DrawIOFormatter(BaseFormatter):
         """
         cell_id = self.cell_id_counter
         self.cell_id_counter += 1
+        # Ensure we never use standard Draw.io IDs (0, 1)
+        if cell_id <= 1:
+            cell_id = self.cell_id_counter
+            self.cell_id_counter += 1
         return cell_id
     
     def get_file_extension(self) -> str:
