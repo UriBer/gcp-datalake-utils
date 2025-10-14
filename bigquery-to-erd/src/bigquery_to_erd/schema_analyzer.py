@@ -6,6 +6,7 @@ from typing import List, Dict, Set, Optional, Tuple
 from collections import defaultdict
 
 from .models import TableSchema, ColumnInfo, Relationship, RelationshipType
+from .pattern_config import PatternConfigLoader
 
 
 logger = logging.getLogger(__name__)
@@ -14,8 +15,15 @@ logger = logging.getLogger(__name__)
 class SchemaAnalyzer:
     """Analyzer for BigQuery table schemas."""
     
-    def __init__(self):
-        """Initialize schema analyzer."""
+    def __init__(self, config_file: Optional[str] = None):
+        """Initialize schema analyzer.
+        
+        Args:
+            config_file: Path to pattern configuration file. If None, uses default.
+        """
+        self.pattern_config = PatternConfigLoader(config_file)
+        
+        # Legacy patterns for backward compatibility
         self.primary_key_patterns = [
             r'^id$',
             r'^.*_id$',
@@ -108,7 +116,11 @@ class SchemaAnalyzer:
         Returns:
             True if column appears to be a primary key
         """
-        # Check naming patterns
+        # Use configuration-based detection first
+        if self.pattern_config.is_primary_key_candidate(column.name, table_schema.table_id):
+            return True
+        
+        # Fallback to legacy patterns
         for pattern in self.primary_key_patterns:
             if re.match(pattern, column.name, re.IGNORECASE):
                 # Additional checks for primary key likelihood
@@ -131,7 +143,11 @@ class SchemaAnalyzer:
         Returns:
             True if column appears to be a foreign key
         """
-        # Check naming patterns
+        # Use configuration-based detection first
+        if self.pattern_config.is_foreign_key_candidate(column.name, table_schema.table_id):
+            return True
+        
+        # Fallback to legacy patterns
         for pattern in self.foreign_key_patterns:
             if re.match(pattern, column.name, re.IGNORECASE):
                 # Additional checks for foreign key likelihood

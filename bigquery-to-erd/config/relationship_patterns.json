@@ -1,0 +1,264 @@
+{
+  "version": "1.0",
+  "description": "Configuration file for table naming patterns and relationship detection rules",
+  "table_patterns": {
+    "data_vault": {
+      "description": "Data Vault methodology patterns",
+      "patterns": {
+        "hub": {
+          "prefix": "h_",
+          "description": "Hub tables contain business keys",
+          "primary_key_patterns": [
+            "id",
+            "key", 
+            "business_key",
+            "bk",
+            "hash_key",
+            "hk",
+            "hub_key"
+          ],
+          "foreign_key_patterns": [],
+          "relationship_rules": {
+            "target_tables": ["dim_*", "l_*"],
+            "relationship_type": "one_to_many",
+            "confidence": 0.9
+          }
+        },
+        "dimension": {
+          "prefix": "dim_",
+          "description": "Dimension tables with descriptive attributes",
+          "primary_key_patterns": [
+            "id",
+            "key",
+            "sk",
+            "surrogate_key",
+            "dim_key",
+            "dk",
+            "hash_key",
+            "hk",
+            "dim_hash_key"
+          ],
+          "foreign_key_patterns": [
+            "*_id",
+            "*_hk",
+            "*_hash_key"
+          ],
+          "relationship_rules": {
+            "target_tables": ["h_*", "dim_*", "l_*"],
+            "relationship_type": "many_to_one",
+            "confidence": 0.8
+          }
+        },
+        "link": {
+          "prefix": "l_",
+          "description": "Link tables connecting hubs",
+          "primary_key_patterns": [
+            "id",
+            "key",
+            "link_key",
+            "lk",
+            "hash_key",
+            "hk",
+            "link_hash_key"
+          ],
+          "foreign_key_patterns": [
+            "*_hk",
+            "*_hash_key",
+            "hub_key",
+            "hk"
+          ],
+          "relationship_rules": {
+            "target_tables": ["h_*"],
+            "relationship_type": "many_to_many",
+            "confidence": 0.95
+          }
+        },
+        "reference": {
+          "prefix": "ref_",
+          "description": "Reference tables with lookup values",
+          "primary_key_patterns": [
+            "id",
+            "key",
+            "ref_key",
+            "rk",
+            "*_code",
+            "*_id"
+          ],
+          "foreign_key_patterns": [],
+          "relationship_rules": {
+            "target_tables": [],
+            "relationship_type": "one_to_many",
+            "confidence": 0.7
+          }
+        }
+      }
+    },
+    "traditional_dw": {
+      "description": "Traditional data warehouse patterns",
+      "patterns": {
+        "dimension": {
+          "prefix": "dim_",
+          "description": "Dimension tables",
+          "primary_key_patterns": [
+            "id",
+            "key",
+            "sk",
+            "surrogate_key",
+            "*_id"
+          ],
+          "foreign_key_patterns": [
+            "*_id",
+            "*_fk"
+          ],
+          "relationship_rules": {
+            "target_tables": ["dim_*", "fact_*"],
+            "relationship_type": "one_to_many",
+            "confidence": 0.8
+          }
+        },
+        "fact": {
+          "prefix": "fact_",
+          "description": "Fact tables with measures",
+          "primary_key_patterns": [
+            "id",
+            "key",
+            "*_id"
+          ],
+          "foreign_key_patterns": [
+            "*_id",
+            "*_fk"
+          ],
+          "relationship_rules": {
+            "target_tables": ["dim_*"],
+            "relationship_type": "many_to_one",
+            "confidence": 0.9
+          }
+        },
+        "bridge": {
+          "prefix": "bridge_",
+          "description": "Bridge tables for many-to-many relationships",
+          "primary_key_patterns": [
+            "id",
+            "key",
+            "relationship_id"
+          ],
+          "foreign_key_patterns": [
+            "*_id",
+            "*_fk"
+          ],
+          "relationship_rules": {
+            "target_tables": ["dim_*", "fact_*"],
+            "relationship_type": "many_to_many",
+            "confidence": 0.8
+          }
+        }
+      }
+    }
+  },
+  "relationship_detection": {
+    "strategies": [
+      {
+        "name": "exact_name_match",
+        "description": "Exact table name matching",
+        "confidence": 0.9,
+        "rules": [
+          {
+            "pattern": "remove_suffixes",
+            "suffixes": ["_id", "_key", "_fk", "_pk", "_hk", "_hash_key"],
+            "action": "remove_and_match"
+          },
+          {
+            "pattern": "add_prefixes",
+            "prefixes": ["h_", "dim_", "l_", "ref_", "fact_", "tbl_", "table_"],
+            "action": "add_and_match"
+          }
+        ]
+      },
+      {
+        "name": "pattern_based_match",
+        "description": "Pattern-based table matching",
+        "confidence": 0.8,
+        "rules": [
+          {
+            "pattern": "plural_singular",
+            "transformations": ["add_s", "add_es", "remove_s"],
+            "action": "transform_and_match"
+          },
+          {
+            "pattern": "data_vault_hub_reference",
+            "condition": "column_ends_with_hk_or_hash_key",
+            "action": "extract_hub_name_and_match"
+          }
+        ]
+      },
+      {
+        "name": "data_type_compatibility",
+        "description": "Match based on compatible data types",
+        "confidence": 0.6,
+        "rules": [
+          {
+            "pattern": "compatible_types",
+            "type_groups": [
+              ["INTEGER", "INT64"],
+              ["STRING", "TEXT"],
+              ["FLOAT", "FLOAT64"],
+              ["BOOLEAN", "BOOL"]
+            ],
+            "action": "match_by_type_compatibility"
+          }
+        ]
+      }
+    ]
+  },
+  "column_patterns": {
+    "primary_key_indicators": [
+      "id",
+      "key",
+      "pk",
+      "sk",
+      "surrogate_key",
+      "business_key",
+      "bk",
+      "hash_key",
+      "hk",
+      "hub_key",
+      "dim_key",
+      "dk",
+      "link_key",
+      "lk",
+      "ref_key",
+      "rk"
+    ],
+    "foreign_key_indicators": [
+      "*_id",
+      "*_key",
+      "*_fk",
+      "*_hk",
+      "*_hash_key",
+      "hub_key",
+      "hk"
+    ],
+    "data_type_priority": {
+      "primary_keys": ["INTEGER", "STRING"],
+      "foreign_keys": ["INTEGER", "STRING"]
+    }
+  },
+  "confidence_scoring": {
+    "exact_match": 0.95,
+    "pattern_match": 0.8,
+    "type_compatibility": 0.6,
+    "naming_convention": 0.7,
+    "data_vault_pattern": 0.9,
+    "minimum_threshold": 0.3
+  },
+  "filtering_rules": {
+    "max_relationships_per_table": 5,
+    "min_confidence_threshold": 0.3,
+    "preferred_detection_methods": [
+      "enhanced_pk_fk",
+      "foreign_key",
+      "data_vault_pattern"
+    ],
+    "duplicate_handling": "keep_highest_confidence"
+  }
+}

@@ -11,6 +11,7 @@ from .models import (
     TableSchema, ColumnInfo, Relationship, RelationshipType, 
     CustomRulesConfig, CustomRelationshipRule, NamingPattern
 )
+from .pattern_config import PatternConfigLoader
 
 
 logger = logging.getLogger(__name__)
@@ -19,13 +20,15 @@ logger = logging.getLogger(__name__)
 class RelationshipDetector:
     """Detects relationships between BigQuery tables."""
     
-    def __init__(self, config: Optional[CustomRulesConfig] = None):
+    def __init__(self, config: Optional[CustomRulesConfig] = None, pattern_config_file: Optional[str] = None):
         """Initialize relationship detector.
         
         Args:
             config: Custom rules configuration
+            pattern_config_file: Path to pattern configuration file
         """
         self.custom_rules = config
+        self.pattern_config = PatternConfigLoader(pattern_config_file)
         self.detection_methods = {
             "foreign_key": self._detect_foreign_keys,
             "naming_convention": self._detect_naming_conventions,
@@ -769,6 +772,12 @@ class RelationshipDetector:
         if not relationships:
             return relationships
         
+        # Get filtering rules from configuration
+        filtering_rules = self.pattern_config.get_filtering_rules()
+        max_rels_per_table = filtering_rules.get("max_relationships_per_table", 5)
+        min_confidence = filtering_rules.get("min_confidence_threshold", 0.3)
+        preferred_methods = filtering_rules.get("preferred_detection_methods", [])
+        
         # Group relationships by source table
         table_relationships = {}
         for rel in relationships:
@@ -783,28 +792,27 @@ class RelationshipDetector:
             rels.sort(key=lambda x: x.confidence, reverse=True)
             
             # Keep only the top relationships per source table
-            # Limit to 3-5 relationships per table to reduce clutter
-            max_rels_per_table = min(5, len(rels))
+            max_rels = min(max_rels_per_table, len(rels))
             
             # Prefer relationships with higher confidence and better naming patterns
             meaningful_rels = []
-            for rel in rels[:max_rels_per_table]:
+            for rel in rels[:max_rels]:
                 # Skip very low confidence relationships
-                if rel.confidence < 0.2:  # Lowered threshold
+                if rel.confidence < min_confidence:
                     continue
                 
                 # Prefer relationships that follow naming conventions
-                if (rel.detection_method in ["enhanced_pk_fk", "foreign_key"] or
-                    rel.confidence >= 0.5):  # Lowered threshold
+                if (rel.detection_method in preferred_methods or
+                    rel.confidence >= 0.5):
                     meaningful_rels.append(rel)
             
             # If we don't have enough high-confidence relationships, 
             # include some medium-confidence ones
-            if len(meaningful_rels) < 2:  # Lowered minimum
+            if len(meaningful_rels) < 2:
                 for rel in rels:
-                    if rel not in meaningful_rels and rel.confidence >= 0.3:  # Lowered threshold
+                    if rel not in meaningful_rels and rel.confidence >= min_confidence:
                         meaningful_rels.append(rel)
-                        if len(meaningful_rels) >= 2:  # Lowered minimum
+                        if len(meaningful_rels) >= 2:
                             break
             
             filtered.extend(meaningful_rels)
