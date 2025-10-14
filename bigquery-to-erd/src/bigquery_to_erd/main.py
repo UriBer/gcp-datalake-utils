@@ -14,6 +14,7 @@ from .bigquery_connector import BigQueryConnector
 from .bq_cli_connector import BQCLIConnector
 from .schema_analyzer import SchemaAnalyzer
 from .relationship_detector import RelationshipDetector, RelationshipValidator
+from .enhanced_relationship_detector import EnhancedRelationshipDetector
 from .erd_generator import ERDGenerator
 
 
@@ -60,6 +61,17 @@ def setup_logging(log_level: str, log_file: Optional[str] = None):
 @click.option('--drawio-theme', 
               type=click.Choice(['default', 'dark', 'minimal']),
               help='Draw.io theme')
+@click.option('--enable-data-testing/--no-data-testing', default=True,
+              help='Enable data-based relationship testing')
+@click.option('--enable-parallel/--no-parallel', default=True,
+              help='Enable parallel processing')
+@click.option('--enable-caching/--no-caching', default=True,
+              help='Enable relationship caching')
+@click.option('--enable-incremental/--no-incremental', default=True,
+              help='Enable incremental processing')
+@click.option('--pattern-config', help='Path to pattern configuration file')
+@click.option('--cache-dir', default='.cache', help='Directory for caching relationships')
+@click.option('--state-file', default='relationship_state.json', help='Path to state persistence file')
 @click.option('--env-file', help='Path to .env file')
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
 @click.option('--dry-run', is_flag=True, help='Show what would be done without executing')
@@ -75,6 +87,13 @@ def main(dataset_id: Optional[str],
          show_column_nullable: Optional[bool],
          show_indexes: Optional[bool],
          drawio_theme: Optional[str],
+         enable_data_testing: bool,
+         enable_parallel: bool,
+         enable_caching: bool,
+         enable_incremental: bool,
+         pattern_config: Optional[str],
+         cache_dir: str,
+         state_file: str,
          env_file: Optional[str],
          verbose: bool,
          dry_run: bool):
@@ -147,6 +166,13 @@ def main(dataset_id: Optional[str],
             click.echo(f"  Include Views: {config.include_views}")
             click.echo(f"  Include External Tables: {config.include_external_tables}")
             click.echo(f"  Table Layout: {config.table_layout}")
+            click.echo(f"  Data Testing: {enable_data_testing}")
+            click.echo(f"  Parallel Processing: {enable_parallel}")
+            click.echo(f"  Caching: {enable_caching}")
+            click.echo(f"  Incremental Processing: {enable_incremental}")
+            click.echo(f"  Pattern Config: {pattern_config or 'default'}")
+            click.echo(f"  Cache Directory: {cache_dir}")
+            click.echo(f"  State File: {state_file}")
             return
         
         # Validate configuration
@@ -160,8 +186,19 @@ def main(dataset_id: Optional[str],
         # Initialize components
         credentials_path = config_manager.get_google_credentials_path()
         analyzer = SchemaAnalyzer()
-        detector = RelationshipDetector(custom_rules_config)
-        validator = RelationshipValidator()
+        
+        # Use enhanced relationship detector if enabled
+        if enable_data_testing or enable_parallel or enable_caching or enable_incremental:
+            detector = EnhancedRelationshipDetector(
+                pattern_config_file=pattern_config,
+                cache_dir=cache_dir,
+                state_file=state_file
+            )
+            validator = RelationshipValidator()
+        else:
+            detector = RelationshipDetector(custom_rules_config)
+            validator = RelationshipValidator()
+        
         generator = ERDGenerator(config)
         
         # Try Python client first, fallback to BQ CLI
@@ -207,14 +244,22 @@ def main(dataset_id: Optional[str],
         
         # Detect relationships
         click.echo("Detecting relationships...")
-        relationships = detector.detect_relationships(
-            analyzed_tables,
-            enable_fk_detection=config.enable_fk_detection,
-            enable_naming_convention_detection=config.enable_naming_convention_detection
-        )
-        
-        # Validate relationships
-        valid_relationships = validator.validate_relationships(relationships, analyzed_tables)
+        if hasattr(detector, 'detect_relationships_enhanced'):
+            # Use enhanced detector
+            relationships = detector.detect_relationships_enhanced(
+                analyzed_tables,
+                enable_data_testing=enable_data_testing,
+                enable_parallel=enable_parallel
+            )
+            valid_relationships = relationships
+        else:
+            # Use standard detector
+            relationships = detector.detect_relationships(
+                analyzed_tables,
+                enable_fk_detection=config.enable_fk_detection,
+                enable_naming_convention_detection=config.enable_naming_convention_detection
+            )
+            valid_relationships = validator.validate_relationships(relationships, analyzed_tables)
         
         click.echo(f"Detected {len(valid_relationships)} valid relationships")
         
@@ -233,6 +278,32 @@ def main(dataset_id: Optional[str],
         click.echo(f"  Tables: {len(analyzed_tables)}")
         click.echo(f"  Relationships: {len(valid_relationships)}")
         click.echo(f"  Format: {config.output_format}")
+        
+        # Show enhanced features stats if using enhanced detector
+        if hasattr(detector, 'get_processing_stats'):
+            stats = detector.get_processing_stats()
+            click.echo(f"  Processing Stats:")
+            click.echo(f"    Parallel Processing: {stats.get('parallel_processing', {}).get('parallel_enabled', False)}")
+            click.echo(f"    Data Testing: {stats.get('data_testing_enabled', False)}")
+            click.echo(f"    Caching: {stats.get('cache_enabled', False)}")
+            click.echo(f"    Incremental Processing: {stats.get('incremental_processing', False)}")
+            
+            if 'cache_stats' in stats:
+                cache_stats = stats['cache_stats']
+                click.echo(f"    Cache Entries: {cache_stats.get('memory_cache_entries', 0)}")
+            
+            if 'incremental_stats' in stats:
+                inc_stats = stats['incremental_stats']
+                click.echo(f"    Processed Tables: {inc_stats.get('processed_tables', 0)}")
+        
+        # Show relationship quality report if using enhanced detector
+        if hasattr(detector, 'get_relationship_quality_report'):
+            quality_report = detector.get_relationship_quality_report(valid_relationships)
+            click.echo(f"  Relationship Quality:")
+            click.echo(f"    High Confidence: {quality_report.get('confidence_distribution', {}).get('high_confidence', 0)}")
+            click.echo(f"    Medium Confidence: {quality_report.get('confidence_distribution', {}).get('medium_confidence', 0)}")
+            click.echo(f"    Low Confidence: {quality_report.get('confidence_distribution', {}).get('low_confidence', 0)}")
+            click.echo(f"    Average Confidence: {quality_report.get('average_confidence', 0):.3f}")
         
         # Close connection if using Python client
         if connector:

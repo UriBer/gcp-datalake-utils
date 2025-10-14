@@ -27,6 +27,33 @@ class DetectionStrategy:
 
 
 @dataclass
+class DataTestingConfig:
+    """Configuration for data-based relationship testing."""
+    enabled: bool
+    sample_size: int
+    confidence_threshold: float
+    max_orphan_percentage: float
+    type_compatibility_required: bool
+    distribution_similarity_threshold: float
+    adaptive_sampling: bool
+    target_confidence_level: float
+
+
+@dataclass
+class PerformanceConfig:
+    """Configuration for performance optimization."""
+    cache_enabled: bool
+    cache_ttl_hours: int
+    parallel_processing: bool
+    max_workers: int
+    batch_size: int
+    incremental_processing: bool
+    state_persistence: bool
+    timeout_seconds: int
+    group_tables_by_type: bool
+
+
+@dataclass
 class PatternConfig:
     """Main configuration class for patterns and relationships."""
     table_patterns: Dict[str, Dict[str, TablePattern]]
@@ -34,6 +61,8 @@ class PatternConfig:
     column_patterns: Dict[str, Any]
     confidence_scoring: Dict[str, float]
     filtering_rules: Dict[str, Any]
+    data_testing: DataTestingConfig
+    performance: PerformanceConfig
 
 
 class PatternConfigLoader:
@@ -87,12 +116,41 @@ class PatternConfigLoader:
                 rules=strategy_data.get("rules", [])
             ))
         
+        # Parse data testing configuration
+        data_testing_data = data.get("data_testing", {})
+        data_testing = DataTestingConfig(
+            enabled=data_testing_data.get("enabled", True),
+            sample_size=data_testing_data.get("sample_size", 1000),
+            confidence_threshold=data_testing_data.get("confidence_threshold", 0.8),
+            max_orphan_percentage=data_testing_data.get("max_orphan_percentage", 0.1),
+            type_compatibility_required=data_testing_data.get("type_compatibility_required", True),
+            distribution_similarity_threshold=data_testing_data.get("distribution_similarity_threshold", 0.7),
+            adaptive_sampling=data_testing_data.get("adaptive_sampling", True),
+            target_confidence_level=data_testing_data.get("target_confidence_level", 0.95)
+        )
+        
+        # Parse performance configuration
+        performance_data = data.get("performance", {})
+        performance = PerformanceConfig(
+            cache_enabled=performance_data.get("cache_enabled", True),
+            cache_ttl_hours=performance_data.get("cache_ttl_hours", 24),
+            parallel_processing=performance_data.get("parallel_processing", True),
+            max_workers=performance_data.get("max_workers", 4),
+            batch_size=performance_data.get("batch_size", 10),
+            incremental_processing=performance_data.get("incremental_processing", True),
+            state_persistence=performance_data.get("state_persistence", True),
+            timeout_seconds=performance_data.get("timeout_seconds", 300),
+            group_tables_by_type=performance_data.get("group_tables_by_type", True)
+        )
+
         return PatternConfig(
             table_patterns=table_patterns,
             detection_strategies=detection_strategies,
             column_patterns=data.get("column_patterns", {}),
             confidence_scoring=data.get("confidence_scoring", {}),
-            filtering_rules=data.get("filtering_rules", {})
+            filtering_rules=data.get("filtering_rules", {}),
+            data_testing=data_testing,
+            performance=performance
         )
     
     def get_table_pattern(self, methodology: str, pattern_name: str) -> Optional[TablePattern]:
@@ -310,3 +368,19 @@ class PatternConfigLoader:
             Dictionary of filtering rules
         """
         return self.config.filtering_rules
+    
+    def get_data_testing_config(self) -> DataTestingConfig:
+        """Get data testing configuration.
+        
+        Returns:
+            DataTestingConfig object
+        """
+        return self.config.data_testing
+    
+    def get_performance_config(self) -> PerformanceConfig:
+        """Get performance configuration.
+        
+        Returns:
+            PerformanceConfig object
+        """
+        return self.config.performance
